@@ -5,3 +5,7 @@ export function apiURL(endpoint: string) {
 export function webURL(endpoint: string) {
     return `http://${window.location.hostname}/${endpoint}`
 }
+
+export function wsURL() {
+    return `ws://${window.location.hostname}:8080/ws`
+}

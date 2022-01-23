@@ -1,4 +1,4 @@
-GET localhost:8080/get_room?name=4ccdf0a2
+GET groupcalldemo.azurewebsites.net:8080/get_room?name=4ccdf0a2
 
 ###
 POST localhost:8080/create_room

@@ -1,5 +1,6 @@
 import {RoomResponse} from "./Api"
 import {action, makeObservable, observable, runInAction} from "mobx"
+import {wsURL} from "./Utils"
 
 export const enum RoomClientState {
     connected = "connected",
@@ -31,7 +32,7 @@ export class RoomClient {
     {
         makeObservable(this)
         console.log(`Create client ${username}@${room}`)
-        this.webSocket = new WebSocket("ws://192.168.0.229:8080/ws")
+        this.webSocket = new WebSocket(wsURL())
         this.webSocket.onopen = () => {
             console.log("Connected")
             runInAction(() => this.state = RoomClientState.connected)

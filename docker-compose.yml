@@ -2,14 +2,16 @@ version: "3.9"
 services:
   frontend:
     build: ./frontend
+    image: ghcr.io/shivatinker/gcd-frontend:latest
     ports:
       - "80:80"
   kurento:
-    build: ./kurento
+    image: kurento/kurento-media-server:latest
     ports:
       - "8888:8888"
   backend:
     build: ./backend
+    image: ghcr.io/shivatinker/gcd-backend:latest
     ports:
       - "8080:8080"
     depends_on:

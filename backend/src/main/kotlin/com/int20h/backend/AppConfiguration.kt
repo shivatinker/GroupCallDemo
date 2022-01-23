@@ -13,6 +13,10 @@ class AppConfiguration {
 
     @Bean
     fun kurentoClient(): KurentoClient {
+        if (System.getenv("MEETALL_PRODUCTION") != null) {
+            return KurentoClient.create("ws://meetall-kmstrue.azurewebsites.net/kurento")
+        }
+
         val env = System.getenv("MEETALL_COMPOSE")
         log.warn("Env: $env")
         return if (env != null) {

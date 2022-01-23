@@ -98,7 +98,7 @@ const RoomPage = observer((props: RoomPageProps): JSX.Element => {
                                                          onRemoteMediaStreamReady: (username, stream) => {
                                                              console.info(`Got for ${username}`)
                                                              let ref = remoteMediaRefs.current![username]
-                                                             if (ref) {
+                                                             if (ref && !ref.srcObject) {
                                                                  ref.srcObject = stream
                                                              }
                                                          },

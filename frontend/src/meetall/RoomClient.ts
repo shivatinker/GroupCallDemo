@@ -11,10 +11,11 @@ export const enum RoomClientState {
 interface RoomClientDelegate {
     onLocalMediaStreamReady: (stream: MediaStream) => void
     onRemoteMediaStreamReady: (username: string, stream: MediaStream) => void
+    onRemoteMediaStreamRemoved: (username: string) => void
 }
 
 export class RoomClient {
-    @observable users: string[] = []
+    @observable users: Set<string> = new Set<string>()
     @observable state: RoomClientState = RoomClientState.disconnected
 
     private webSocket!: WebSocket
@@ -54,30 +55,9 @@ export class RoomClient {
                     await this.localPeer?.setRemoteDescription({type: "answer", sdp: response.sdpAnswer})
                     break
                 case "info":
-                    runInAction(() => this.users = response.users)
+                    runInAction(() => this.users = new Set(response.users))
                     for (const username of response.users) {
-                        if (username === this.username) {
-                            continue
-                        }
-
-                        let remotePeer = new RTCPeerConnection()
-                        this.remotePeers[username] = remotePeer
-                        remotePeer.onicecandidate = event => {
-                            if (event.candidate) {
-                                this.send("ice", {iceUsername: username, iceCandidate: event.candidate})
-                            }
-                        }
-                        remotePeer.ontrack = event => {
-                            delegate.onRemoteMediaStreamReady(username, event.streams[0])
-                        }
-                        const offer = await remotePeer.createOffer({
-                                                                       offerToReceiveAudio: true,
-                                                                       offerToReceiveVideo: true,
-                                                                   })
-
-                        this.send("media", {mediaUsername: username, sdpOffer: offer.sdp})
-
-                        await remotePeer.setLocalDescription(offer)
+                        await this.requestMedia(username)
                     }
                     break
                 case "media":
@@ -87,6 +67,14 @@ export class RoomClient {
                                                                                         })
                     console.log(this.remotePeers[response.mediaUsername].localDescription)
                     console.log(this.remotePeers[response.mediaUsername].remoteDescription)
+                    break
+                case "userJoined":
+                    this.users.add(response.username)
+                    await this.requestMedia(response.username)
+                    break
+                case "userLeft":
+                    delegate.onRemoteMediaStreamRemoved(response.username)
+                    this.users.delete(response.username)
                     break
                 default:
                     console.warn(`Unknown response from server: ${JSON.stringify(response)}`)
@@ -133,8 +121,33 @@ export class RoomClient {
 
         this.send("leave")
 
-        this.users = []
-        this.state = RoomClientState.disconnected
+        this.users = new Set()
+        this.state = RoomClientState.connected
+    }
+
+    private async requestMedia(username: string) {
+        if (username === this.username) {
+            return
+        }
+
+        let remotePeer = new RTCPeerConnection()
+        this.remotePeers[username] = remotePeer
+        remotePeer.onicecandidate = event => {
+            if (event.candidate) {
+                this.send("ice", {iceUsername: username, iceCandidate: event.candidate})
+            }
+        }
+        remotePeer.ontrack = event => {
+            this.delegate.onRemoteMediaStreamReady(username, event.streams[0])
+        }
+        const offer = await remotePeer.createOffer({
+                                                       offerToReceiveAudio: true,
+                                                       offerToReceiveVideo: true,
+                                                   })
+
+        this.send("media", {mediaUsername: username, sdpOffer: offer.sdp})
+
+        await remotePeer.setLocalDescription(offer)
     }
 
     private send<T>(type: string, data?: T) {

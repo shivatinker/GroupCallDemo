@@ -31,11 +31,16 @@ abstract class RoomControllerAction(val username: String, val room: String) {
         JsonSubTypes.Type(RoomControllerResponse.IceCandidate::class, name = "ice"),
         JsonSubTypes.Type(RoomControllerResponse.MediaResponse::class, name = "media"),
         JsonSubTypes.Type(RoomControllerResponse.RoomInfo::class, name = "info"),
+        JsonSubTypes.Type(RoomControllerResponse.UserJoined::class, name = "userJoined"),
+        JsonSubTypes.Type(RoomControllerResponse.UserLeft::class, name = "userLeft"),
 )
 abstract class RoomControllerResponse {
     data class JoinAck(val sdpAnswer: String) : RoomControllerResponse()
     data class IceCandidate(val iceUsername: String,
                             val iceCandidate: org.kurento.client.IceCandidate) : RoomControllerResponse()
-    data class MediaResponse(val mediaUsername: String, val sdpAnswer: String): RoomControllerResponse()
+
+    data class MediaResponse(val mediaUsername: String, val sdpAnswer: String) : RoomControllerResponse()
     data class RoomInfo(val users: List<String>) : RoomControllerResponse()
+    data class UserJoined(val username: String) : RoomControllerResponse()
+    data class UserLeft(val username: String) : RoomControllerResponse()
 }

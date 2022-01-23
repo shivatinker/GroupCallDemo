@@ -12,4 +12,10 @@ export type RoomResponse = {
     t: "media"
     mediaUsername: string
     sdpAnswer: string
+} | {
+    t: "userJoined"
+    username: string
+} | {
+    t: "userLeft"
+    username: string
 }

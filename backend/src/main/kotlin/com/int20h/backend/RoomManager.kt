@@ -16,12 +16,12 @@ import javax.annotation.PostConstruct
 
 class RoomUserSession(
         val username: String,
-        val roomPipeline: MediaPipeline,
+        private val roomPipeline: MediaPipeline,
         private val webSocketSession: WebSocketSession
 ) : Closeable {
     private val log = KotlinLogging.logger {}
-    val outgoingMediaEndpoint: WebRtcEndpoint = WebRtcEndpoint.Builder(roomPipeline).build()
-    val incomingMediaEndpoints: MutableMap<String, WebRtcEndpoint> = HashMap()
+    private val outgoingMediaEndpoint: WebRtcEndpoint = WebRtcEndpoint.Builder(roomPipeline).build()
+    private val incomingMediaEndpoints: MutableMap<String, WebRtcEndpoint> = HashMap()
 
     init {
         outgoingMediaEndpoint.addIceCandidateFoundListener { event ->
@@ -33,6 +33,14 @@ class RoomUserSession(
         val incomingEndpoint = WebRtcEndpoint.Builder(roomPipeline).build()
         userSession.outgoingMediaEndpoint.connect(incomingEndpoint)
         incomingMediaEndpoints[userSession.username] = incomingEndpoint
+    }
+
+    fun notifyAboutJoining(username: String) {
+        sendByWebSocket(RoomControllerResponse.UserJoined(username))
+    }
+
+    fun notifyAboutLeaving(username: String) {
+        sendByWebSocket(RoomControllerResponse.UserLeft(username))
     }
 
     fun connect(sdpOffer: String) {
@@ -86,8 +94,14 @@ class RoomUserSession(
     }
 }
 
-class Room(val roomName: String, val pipeline: MediaPipeline) : Closeable {
+class Room(val roomName: String, private val pipeline: MediaPipeline) : Closeable {
+    private val log = KotlinLogging.logger {}
     private val userSessions: MutableMap<String, RoomUserSession> = HashMap()
+
+    val usernames: List<String>
+        get() {
+            return userSessions.values.map { session -> session.username }
+        }
 
     fun addUser(username: String, webSocketSession: WebSocketSession, sdpOffer: String) {
         val userSession = RoomUserSession(username, pipeline, webSocketSession)
@@ -96,10 +110,29 @@ class Room(val roomName: String, val pipeline: MediaPipeline) : Closeable {
         for (session in userSessions.values) {
             session.handleUserDidJoin(userSession)
             userSession.handleUserDidJoin(session)
+
+            session.notifyAboutJoining(userSession.username)
         }
         userSessions[username] = userSession
 
-        userSession.sendByWebSocket(RoomControllerResponse.RoomInfo(userSessions.values.map { session -> session.username }))
+        userSession.sendByWebSocket(RoomControllerResponse.RoomInfo(usernames))
+
+        log.info("User $username joined $roomName")
+    }
+
+    fun removeUser(username: String) {
+        val userSession = userSessions[username] ?: throw IllegalArgumentException("No such user: $username")
+
+        userSessions.remove(username)
+
+        for (session in userSessions.values) {
+            session.handleUserDidLeave(username)
+            session.notifyAboutLeaving(username)
+        }
+
+        userSession.close()
+
+        log.info("User $username left $roomName")
     }
 
     fun addIceCandidate(username: String, iceCandidate: IceCandidate) {
@@ -141,5 +174,9 @@ class RoomManager(val kurentoClient: KurentoClient) {
 
     fun getRoom(roomName: String): Room {
         return allRooms[roomName] ?: throw IllegalArgumentException("No such room: $roomName")
+    }
+
+    fun isRoomExists(roomName: String): Boolean {
+        return allRooms.containsKey(roomName)
     }
 }

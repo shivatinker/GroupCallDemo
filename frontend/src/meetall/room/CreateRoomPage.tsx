@@ -1,6 +1,7 @@
 import React, {useState} from "react"
 import axios from "axios"
 import {apiURL, webURL} from "../Utils"
+import {Helmet} from "react-helmet-async"
 
 export interface CreateRoomPageProps {
 
@@ -19,20 +20,27 @@ const CreateRoomPage = (props: CreateRoomPageProps): JSX.Element => {
 
     switch (state) {
         case State.ready:
-            return <button onClick={() => {
-                setState(State.creating)
-                axios.post(apiURL("create_room"))
-                     .then(response => {
-                         if (response.data.roomName) {
-                             setRoomName(response.data.roomName)
-                             setState(State.success)
-                         }
-                         else {
-                             setState(State.error)
-                         }
-                     })
-                     .catch(() => setState(State.error))
-            }}>Create room</button>
+            return <div className={"create-box"}>
+                <Helmet>
+                    <title>Create room | MeetAll</title>
+                </Helmet>
+                <h2>-1/12 INT20H 2022 [MEETALL]</h2>
+                <button onClick={() => {
+                    setState(State.creating)
+                    axios.post(apiURL("create_room"))
+                         .then(response => {
+                             if (response.data.roomName) {
+                                 setRoomName(response.data.roomName)
+                                 setState(State.success)
+                             }
+                             else {
+                                 setState(State.error)
+                             }
+                         })
+                         .catch(() => setState(State.error))
+                }}>Create room
+                </button>
+            </div>
         case State.creating:
             return <h1>Creating room...</h1>
         case State.success:

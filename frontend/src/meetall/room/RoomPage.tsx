@@ -4,6 +4,8 @@ import {RoomClient, RoomClientState} from "../RoomClient"
 import {RouteComponentProps} from "react-router"
 import axios from "axios"
 import {apiURL} from "../Utils"
+import {Link} from "react-router-dom"
+import {Helmet} from "react-helmet-async"
 
 interface MatchParams {
     roomName: string
@@ -40,7 +42,10 @@ const RoomPage = observer((props: RoomPageProps): JSX.Element => {
     }, [roomName])
 
     if (status === Status.error) {
-        return <h1>No such room =(</h1>
+        return <div>
+            <h1>No such room =(</h1>
+            <h2><Link to={"/create"}>Create one!</Link></h2>
+        </div>
     }
 
     if (status === Status.loading) {
@@ -62,70 +67,92 @@ const RoomPage = observer((props: RoomPageProps): JSX.Element => {
                                                     muted/>
                                             </div>) : null
 
-    return <div>
+    return <div className={"content"}>
+        <Helmet>
+            <title>Room {roomName} | MeetAll</title>
+        </Helmet>
         <h1>Room: {roomName}</h1>
-        <input type={"text"} disabled={!!roomClient} placeholder={"Username"} ref={usernameInputRef}/>
-        <button disabled={!!roomClient}
-                onClick={() => {
-                    let uname = usernameInputRef.current!.value
+        <div className={"controls"}>
+            <input type={"text"} disabled={!!roomClient} placeholder={"Username"} ref={usernameInputRef}/>
+            <button disabled={!!roomClient}
+                    onClick={() => {
+                        let uname = usernameInputRef.current!.value
 
-                    if (!uname || uname.length < 3) {
-                        alert("Not enough symbols in username")
-                        return
-                    }
+                        if (!uname || uname.length < 3) {
+                            alert("Not enough symbols in username")
+                            return
+                        }
 
-                    if (!!roomClient) {
-                        roomClient.leave()
-                    }
+                        if (!!roomClient) {
+                            roomClient.leave()
+                        }
 
-                    setRoomClient(new RoomClient(uname,
-                                                 roomName,
-                                                 {
-                                                     onLocalMediaStreamReady: (stream: MediaStream) => {
-                                                         localMediaRef.current!.srcObject = stream
-                                                     },
-                                                     onLocalMediaStreamRemoved: () => {
-                                                         localMediaRef.current!.srcObject = null
-                                                     },
-                                                     onRemoteMediaStreamReady: (username, stream) => {
-                                                         console.info(`Got for ${username}`)
-                                                         let ref = remoteMediaRefs.current![username]
-                                                         if (ref) {
-                                                             ref.srcObject = stream
-                                                         }
-                                                     },
-                                                     onRemoteMediaStreamRemoved: (username => {
-                                                         let ref = remoteMediaRefs.current![username]
-                                                         if (ref) {
-                                                             ref.srcObject = null
-                                                         }
-                                                     }),
-                                                 }))
-                }}>CONNECT
-        </button>
-        <button disabled={roomClient?.state !== RoomClientState.connected}
-                onClick={() => {
-                    roomClient?.join()
-                }}>JOIN
-        </button>
-        <button disabled={roomClient?.state !== RoomClientState.joined}
-                onClick={() => {
-                    roomClient?.leave()
-                }}>LEAVE
-        </button>
+                        setRoomClient(new RoomClient(uname,
+                                                     roomName,
+                                                     {
+                                                         onLocalMediaStreamReady: (stream: MediaStream) => {
+                                                             localMediaRef.current!.srcObject = stream
+                                                         },
+                                                         onLocalMediaStreamRemoved: () => {
+                                                             localMediaRef.current!.srcObject = null
+                                                         },
+                                                         onRemoteMediaStreamReady: (username, stream) => {
+                                                             console.info(`Got for ${username}`)
+                                                             let ref = remoteMediaRefs.current![username]
+                                                             if (ref) {
+                                                                 ref.srcObject = stream
+                                                             }
+                                                         },
+                                                         onRemoteMediaStreamRemoved: (username => {
+                                                             let ref = remoteMediaRefs.current![username]
+                                                             if (ref) {
+                                                                 ref.srcObject = null
+                                                             }
+                                                         }),
+                                                     }))
+                    }}>CONNECT
+            </button>
+            <button disabled={roomClient?.state !== RoomClientState.connected}
+                    onClick={() => {
+                        roomClient?.join()
+                    }}>JOIN
+            </button>
+            <button disabled={roomClient?.state !== RoomClientState.joined}
+                    onClick={() => {
+                        roomClient?.leave()
+                    }}>LEAVE
+            </button>
+        </div>
         {roomClient ? <>
-            <p>Username: {roomClient.username}</p>
-            <p>Room: {roomClient.room}</p>
-            <p>State: {roomClient.state}</p>
-            <p>Users: {Array.from(roomClient.users).join(", ")}</p>
+            <div className={"info"}>
+                <span>Username: {roomClient.username}</span>
+                <span>Room: {roomClient.room}</span>
+                <span style={{
+                    color: (() => {
+                        switch (roomClient!.state) {
+                            case RoomClientState.joined:
+                                return "green"
+                            case RoomClientState.connected:
+                                return "cyan"
+                            case RoomClientState.disconnected:
+                                return "red"
+                            case RoomClientState.joining:
+                                return "yellow"
+                            default:
+                                return "white"
+                        }
+                    })(),
+                }}>State: {roomClient.state}</span>
+                <span>Users: {Array.from(roomClient.users).join(", ")}</span>
+            </div>
+            <div className={"video-box local-video"}>
+                <span>YOU ({roomClient.username})</span>
+                <video ref={localMediaRef} playsInline autoPlay muted/>
+            </div>
+            <div className={"remote-box"}>
+                {remoteMediaVideos}
+            </div>
         </> : null}
-        <div className={"video-box"}>
-            <span>YOU</span>
-            <video ref={localMediaRef} playsInline autoPlay muted/>
-        </div>
-        <div className={"remote-box"}>
-            {remoteMediaVideos}
-        </div>
     </div>
 })
 

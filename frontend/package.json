@@ -23,7 +23,8 @@
     "react-router-dom": "5.2.0",
     "react-scripts": "5.0.0",
     "typescript": "^4.5.5",
-    "web-vitals": "^2.1.4"
+    "web-vitals": "^2.1.4",
+    "react-helmet-async": "^1.1.2"
   },
   "scripts": {
     "start": "set PORT=80 && react-scripts start",

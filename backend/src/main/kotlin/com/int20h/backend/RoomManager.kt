@@ -1,47 +1,145 @@
 package com.int20h.backend
 
-import org.springframework.context.ApplicationEventPublisher
+import com.fasterxml.jackson.module.kotlin.jacksonObjectMapper
+import com.int20h.backend.websocket.RoomControllerResponse
+import mu.KotlinLogging
+import org.kurento.client.IceCandidate
+import org.kurento.client.KurentoClient
+import org.kurento.client.MediaPipeline
+import org.kurento.client.WebRtcEndpoint
 import org.springframework.stereotype.Service
+import org.springframework.web.socket.TextMessage
+import org.springframework.web.socket.WebSocketSession
+import java.io.Closeable
 import java.util.*
+import javax.annotation.PostConstruct
 
-@Service
-class RoomManager(val eventPublisher: ApplicationEventPublisher) {
-    data class Room(val name: String) {
-        val users: MutableSet<String> = HashSet()
+class RoomUserSession(
+        val username: String,
+        val roomPipeline: MediaPipeline,
+        private val webSocketSession: WebSocketSession
+) : Closeable {
+    private val log = KotlinLogging.logger {}
+    val outgoingMediaEndpoint: WebRtcEndpoint = WebRtcEndpoint.Builder(roomPipeline).build()
+    val incomingMediaEndpoints: MutableMap<String, WebRtcEndpoint> = HashMap()
+
+    init {
+        outgoingMediaEndpoint.addIceCandidateFoundListener { event ->
+            sendByWebSocket(RoomControllerResponse.IceCandidate(this.username, event.candidate))
+        }
     }
 
-    data class UserDidJoinRoomEvent(val roomName: String, val username: String)
-    data class UserDidLeaveRoomEvent(val roomName: String, val username: String)
+    fun handleUserDidJoin(userSession: RoomUserSession) {
+        val incomingEndpoint = WebRtcEndpoint.Builder(roomPipeline).build()
+        userSession.outgoingMediaEndpoint.connect(incomingEndpoint)
+        incomingMediaEndpoints[userSession.username] = incomingEndpoint
+    }
 
+    fun connect(sdpOffer: String) {
+        val sdpAnswer = outgoingMediaEndpoint.processOffer(sdpOffer)
+
+        sendByWebSocket(RoomControllerResponse.JoinAck(sdpAnswer))
+
+        outgoingMediaEndpoint.gatherCandidates()
+    }
+
+    fun handleUserDidLeave(username: String) {
+        incomingMediaEndpoints[username]?.release()
+        incomingMediaEndpoints.remove(username)
+    }
+
+    fun requestMedia(username: String, sdpOffer: String) {
+        val endpoint = incomingMediaEndpoints[username]
+                       ?: throw IllegalArgumentException("No such incoming endpoint: $username")
+        val sdpAnswer = endpoint.processOffer(sdpOffer)
+
+        sendByWebSocket(RoomControllerResponse.MediaResponse(username, sdpAnswer))
+
+        log.info("${this.username} $username gather")
+        endpoint.addIceCandidateFoundListener { event ->
+            sendByWebSocket(RoomControllerResponse.IceCandidate(username, event.candidate))
+        }
+        endpoint.gatherCandidates()
+    }
+
+    fun sendByWebSocket(response: RoomControllerResponse) {
+        synchronized(webSocketSession) {
+            val mapper = jacksonObjectMapper()
+            webSocketSession.sendMessage(TextMessage(mapper.writeValueAsString(response)))
+        }
+    }
+
+    fun addIceCandidate(username: String, iceCandidate: IceCandidate) {
+        if (username == this.username) {
+            outgoingMediaEndpoint.addIceCandidate(iceCandidate)
+        }
+        else {
+            incomingMediaEndpoints[username]?.addIceCandidate(iceCandidate)
+        }
+    }
+
+    override fun close() {
+        outgoingMediaEndpoint.release()
+        for (endpoint in incomingMediaEndpoints.values) {
+            endpoint.release()
+        }
+    }
+}
+
+class Room(val roomName: String, val pipeline: MediaPipeline) : Closeable {
+    private val userSessions: MutableMap<String, RoomUserSession> = HashMap()
+
+    fun addUser(username: String, webSocketSession: WebSocketSession, sdpOffer: String) {
+        val userSession = RoomUserSession(username, pipeline, webSocketSession)
+        userSession.connect(sdpOffer)
+
+        for (session in userSessions.values) {
+            session.handleUserDidJoin(userSession)
+            userSession.handleUserDidJoin(session)
+        }
+        userSessions[username] = userSession
+
+        userSession.sendByWebSocket(RoomControllerResponse.RoomInfo(userSessions.values.map { session -> session.username }))
+    }
+
+    fun addIceCandidate(username: String, iceCandidate: IceCandidate) {
+        for (userSession in userSessions.values) {
+            userSession.addIceCandidate(username, iceCandidate)
+        }
+    }
+
+    fun requestMedia(fromUsername: String, username: String, sdpOffer: String) {
+        val userSession = userSessions[fromUsername] ?: throw IllegalArgumentException("No such user: $fromUsername")
+        userSession.requestMedia(username, sdpOffer)
+    }
+
+    override fun close() {
+        for (userSession in userSessions.values) {
+            userSession.close()
+        }
+
+        pipeline.release()
+    }
+}
+
+@Service
+class RoomManager(val kurentoClient: KurentoClient) {
+    private val log = KotlinLogging.logger {}
     private val allRooms: MutableMap<String, Room> = HashMap()
 
-    fun createRoom(): String {
-        val name = UUID.randomUUID().toString().substring(0, 8)
-        allRooms[name] = Room(name)
+    @PostConstruct
+    private fun postConstruct() {
+        createRoom("test")
+    }
+
+    fun createRoom(nameOrNull: String?): String {
+        val name = nameOrNull ?: UUID.randomUUID().toString().substring(0, 8)
+        allRooms[name] = Room(name, kurentoClient.createMediaPipeline())
+        log.info("Room \"$name\" created")
         return name
     }
 
     fun getRoom(roomName: String): Room {
         return allRooms[roomName] ?: throw IllegalArgumentException("No such room: $roomName")
-    }
-
-    fun joinRoom(username: String, roomName: String) {
-        val room = getRoom(roomName)
-
-        if (!room.users.add(username)) {
-            throw IllegalStateException("User $username already in room $roomName")
-        }
-
-        eventPublisher.publishEvent(UserDidJoinRoomEvent(roomName, username))
-    }
-
-    fun leaveRoom(username: String, roomName: String) {
-        val room = getRoom(roomName)
-
-        if (!room.users.remove(username)) {
-            throw IllegalStateException("User $username is not in the room $roomName")
-        }
-
-        eventPublisher.publishEvent(UserDidLeaveRoomEvent(roomName, username))
     }
 }

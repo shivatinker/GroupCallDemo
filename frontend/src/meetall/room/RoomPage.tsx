@@ -15,6 +15,8 @@ const RoomPage = observer((props: RoomPageProps): JSX.Element => {
     const [roomClient, setRoomClient] = useState<RoomClient | null>(null)
 
     const usernameInputRef = useRef<HTMLInputElement>(null)
+    const localMediaRef = useRef<HTMLVideoElement>(null)
+    const remoteMediaRef = useRef<HTMLVideoElement>(null)
 
     return <div>
         <input type={"text"} placeholder={"Username"} ref={usernameInputRef}/>
@@ -23,7 +25,17 @@ const RoomPage = observer((props: RoomPageProps): JSX.Element => {
                 roomClient.leave()
             }
 
-            setRoomClient(new RoomClient(usernameInputRef.current!.value, props.match.params.roomName))
+            setRoomClient(new RoomClient(usernameInputRef.current!.value,
+                                         props.match.params.roomName,
+                                         {
+                                             onLocalMediaStreamReady: (stream: MediaStream) => {
+                                                 localMediaRef.current!.srcObject = stream
+                                             },
+                                             onRemoteMediaStreamReady: (username, stream) => {
+                                                 console.info(`Got for ${username}`)
+                                                 remoteMediaRef.current!.srcObject = stream
+                                             },
+                                         }))
         }}>CONNECT
         </button>
         <button onClick={() => {
@@ -40,6 +52,8 @@ const RoomPage = observer((props: RoomPageProps): JSX.Element => {
             <p>State: {roomClient.state}</p>
             <p>Users: {roomClient.users.join(", ")}</p>
         </> : null}
+        <video ref={localMediaRef} playsInline autoPlay muted/>
+        <video ref={remoteMediaRef} playsInline autoPlay muted/>
     </div>
 })
 

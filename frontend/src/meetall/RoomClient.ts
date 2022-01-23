@@ -1,58 +1,127 @@
-import {Client as StompJSClient, IMessage, StompSubscription} from "@stomp/stompjs"
 import {RoomResponse} from "./Api"
 import {action, makeObservable, observable, runInAction} from "mobx"
 
 export const enum RoomClientState {
     connected = "connected",
+    joining = "joining",
+    joined = "joined",
     disconnected = "disconnected",
+}
+
+interface RoomClientDelegate {
+    onLocalMediaStreamReady: (stream: MediaStream) => void
+    onRemoteMediaStreamReady: (username: string, stream: MediaStream) => void
 }
 
 export class RoomClient {
     @observable users: string[] = []
     @observable state: RoomClientState = RoomClientState.disconnected
 
-    private readonly wsClient: StompJSClient
-    private wsSubscriptions: StompSubscription[] = []
+    private webSocket!: WebSocket
+    private localPeer: RTCPeerConnection | null = null
+
+    private remotePeers: { [username: string]: RTCPeerConnection } = {}
 
     constructor(public readonly username: string,
-                public readonly room: string)
+                public readonly room: string,
+                private readonly delegate: RoomClientDelegate)
     {
         makeObservable(this)
         console.log(`Create client ${username}@${room}`)
-        this.wsClient = new StompJSClient({
-                                              brokerURL: "ws://localhost:8080/ws",
-                                              reconnectDelay: 1000,
-                                              onConnect: () => console.log("Connected"),
-                                              onWebSocketClose: () => console.log("Disconnected"),
-                                          })
-        this.wsClient.activate()
-    }
-
-    @action
-    public join() {
-        if (this.state === RoomClientState.connected) {
-            console.warn("Already connected")
-            return
+        this.webSocket = new WebSocket("ws://192.168.0.229:8080/ws")
+        this.webSocket.onopen = () => {
+            console.log("Connected")
+            runInAction(() => this.state = RoomClientState.connected)
         }
-
-        this.send("join")
-        let handler = (message: IMessage) => {
-            const response: RoomResponse = JSON.parse(message.body)
+        this.webSocket.onerror = () => console.error("Error")
+        this.webSocket.onclose = () => {
+            console.warn("Closed")
+            runInAction(() => this.state = RoomClientState.disconnected)
+        }
+        this.webSocket.onmessage = async (event) => {
+            const response: RoomResponse = JSON.parse(event.data)
             switch (response.t) {
-                case "users":
-                    runInAction(() => {
-                        this.users = response.users
-                    })
+                case "ice":
+                    if (response.iceUsername === this.username) {
+                        await this.localPeer?.addIceCandidate(response.iceCandidate)
+                    }
+                    else {
+                        await this.remotePeers[response.iceUsername].addIceCandidate(response.iceCandidate)
+                    }
+                    break
+                case "ack":
+                    runInAction(() => this.state = RoomClientState.joined)
+                    await this.localPeer?.setRemoteDescription({type: "answer", sdp: response.sdpAnswer})
+                    break
+                case "info":
+                    runInAction(() => this.users = response.users)
+                    for (const username of response.users) {
+                        if (username === this.username) {
+                            continue
+                        }
+
+                        let remotePeer = new RTCPeerConnection()
+                        this.remotePeers[username] = remotePeer
+                        remotePeer.onicecandidate = event => {
+                            if (event.candidate) {
+                                this.send("ice", {iceUsername: username, iceCandidate: event.candidate})
+                            }
+                        }
+                        remotePeer.ontrack = event => {
+                            delegate.onRemoteMediaStreamReady(username, event.streams[0])
+                        }
+                        const offer = await remotePeer.createOffer({
+                                                                       offerToReceiveAudio: true,
+                                                                       offerToReceiveVideo: true,
+                                                                   })
+
+                        this.send("media", {mediaUsername: username, sdpOffer: offer.sdp})
+
+                        await remotePeer.setLocalDescription(offer)
+                    }
+                    break
+                case "media":
+                    await this.remotePeers[response.mediaUsername].setRemoteDescription({
+                                                                                            type: "answer",
+                                                                                            sdp: response.sdpAnswer,
+                                                                                        })
+                    console.log(this.remotePeers[response.mediaUsername].localDescription)
+                    console.log(this.remotePeers[response.mediaUsername].remoteDescription)
                     break
                 default:
                     console.warn(`Unknown response from server: ${JSON.stringify(response)}`)
             }
         }
-        this.wsSubscriptions = [
-            this.wsClient.subscribe(`/room/${this.room}`, handler),
-            this.wsClient.subscribe(`/user/room/${this.room}`, handler),
-        ]
-        this.state = RoomClientState.connected
+    }
+
+    @action
+    public async join() {
+        if (this.state !== RoomClientState.connected) {
+            console.warn("Not connected")
+            return
+        }
+
+        this.state = RoomClientState.joining
+
+        const localStream = await navigator.mediaDevices.getUserMedia({audio: true, video: true})
+        this.delegate.onLocalMediaStreamReady(localStream)
+
+        this.localPeer = new RTCPeerConnection()
+        this.localPeer.onicecandidate = event => {
+            if (event.candidate) {
+                this.send("ice", {iceUsername: this.username, iceCandidate: event.candidate})
+            }
+        }
+
+        localStream.getTracks().forEach(track => this.localPeer?.addTrack(track, localStream))
+
+        const offer = await this.localPeer.createOffer({
+                                                           offerToReceiveAudio: false,
+                                                           offerToReceiveVideo: false,
+                                                       })
+        await this.localPeer.setLocalDescription(offer)
+
+        this.send("join", {sdpOffer: offer.sdp})
     }
 
     @action
@@ -64,24 +133,16 @@ export class RoomClient {
 
         this.send("leave")
 
-        for (const subscription of this.wsSubscriptions) {
-            subscription.unsubscribe()
-        }
-
-        this.wsSubscriptions = []
         this.users = []
         this.state = RoomClientState.disconnected
     }
 
     private send<T>(type: string, data?: T) {
-        this.wsClient.publish({
-                                  destination: "/room",
-                                  body: JSON.stringify({
-                                                           t: type,
-                                                           username: this.username,
-                                                           room: this.room,
-                                                           ...data,
-                                                       }),
-                              })
+        this.webSocket.send(JSON.stringify({
+                                               t: type,
+                                               username: this.username,
+                                               room: this.room,
+                                               ...data,
+                                           }))
     }
 }

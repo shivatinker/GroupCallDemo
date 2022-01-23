@@ -63,8 +63,7 @@ const RoomPage = observer((props: RoomPageProps): JSX.Element => {
                                                         remoteMediaRefs.current![user] = el
                                                     }}
                                                     playsInline
-                                                    autoPlay
-                                                    muted/>
+                                                    autoPlay/>
                                             </div>) : null
 
     return <div className={"content"}>
@@ -145,6 +144,18 @@ const RoomPage = observer((props: RoomPageProps): JSX.Element => {
                 }}>State: {roomClient.state}</span>
                 <span>Users: {Array.from(roomClient.users).join(", ")}</span>
             </div>
+            {roomClient.state === RoomClientState.joined ?
+             <>
+                 <button onClick={() => {
+                     roomClient!.setOutboundAudioEnabled(!roomClient!.isAudioEnabled)
+                 }}>{roomClient.isAudioEnabled ? "Mute" : "Unmute"}
+                 </button>
+                 <button onClick={() => {
+                     roomClient!.setOutboundVideoEnabled(!roomClient!.isVideoEnabled)
+                 }}>{roomClient.isVideoEnabled ? "Disable camera" : "Enable camera"}
+                 </button>
+             </> : null
+            }
             <div className={"video-box local-video"}>
                 <span>YOU ({roomClient.username})</span>
                 <video ref={localMediaRef} playsInline autoPlay muted/>

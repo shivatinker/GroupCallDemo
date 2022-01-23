@@ -19,6 +19,8 @@ interface RoomClientDelegate {
 export class RoomClient {
     @observable users: Set<string> = new Set<string>()
     @observable state: RoomClientState = RoomClientState.disconnected
+    @observable isAudioEnabled = false
+    @observable isVideoEnabled = false
 
     private webSocket!: WebSocket
     private localPeer: RTCPeerConnection | null = null
@@ -95,6 +97,10 @@ export class RoomClient {
         this.state = RoomClientState.joining
 
         this.localStream = await navigator.mediaDevices.getUserMedia({audio: true, video: true})
+
+        this.setOutboundAudioEnabled(this.isAudioEnabled)
+        this.setOutboundVideoEnabled(this.isVideoEnabled)
+
         this.delegate.onLocalMediaStreamReady(this.localStream)
 
         this.localPeer = new RTCPeerConnection()
@@ -113,6 +119,26 @@ export class RoomClient {
         await this.localPeer.setLocalDescription(offer)
 
         this.send("join", {sdpOffer: offer.sdp})
+    }
+
+    @action
+    public setOutboundAudioEnabled(enabled: boolean) {
+        this.localStream?.getTracks().forEach(track => {
+            if (track.kind === "audio") {
+                track.enabled = enabled
+            }
+        })
+        this.isAudioEnabled = enabled
+    }
+
+    @action
+    public setOutboundVideoEnabled(enabled: boolean) {
+        this.localStream?.getTracks().forEach(track => {
+            if (track.kind === "video") {
+                track.enabled = enabled
+            }
+        })
+        this.isVideoEnabled = enabled
     }
 
     @action

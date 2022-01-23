@@ -10,7 +10,7 @@ import org.springframework.web.servlet.config.annotation.WebMvcConfigurer
 class AppConfiguration {
     @Bean
     fun kurentoClient(): KurentoClient {
-        return KurentoClient.create()
+        return KurentoClient.create("ws://kurento:8888/kurento")
     }
 
     @Bean

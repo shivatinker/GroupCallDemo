@@ -10,6 +10,7 @@ export const enum RoomClientState {
 
 interface RoomClientDelegate {
     onLocalMediaStreamReady: (stream: MediaStream) => void
+    onLocalMediaStreamRemoved: () => void
     onRemoteMediaStreamReady: (username: string, stream: MediaStream) => void
     onRemoteMediaStreamRemoved: (username: string) => void
 }
@@ -22,6 +23,7 @@ export class RoomClient {
     private localPeer: RTCPeerConnection | null = null
 
     private remotePeers: { [username: string]: RTCPeerConnection } = {}
+    private localStream: MediaStream | null = null
 
     constructor(public readonly username: string,
                 public readonly room: string,
@@ -91,8 +93,8 @@ export class RoomClient {
 
         this.state = RoomClientState.joining
 
-        const localStream = await navigator.mediaDevices.getUserMedia({audio: true, video: true})
-        this.delegate.onLocalMediaStreamReady(localStream)
+        this.localStream = await navigator.mediaDevices.getUserMedia({audio: true, video: true})
+        this.delegate.onLocalMediaStreamReady(this.localStream)
 
         this.localPeer = new RTCPeerConnection()
         this.localPeer.onicecandidate = event => {
@@ -101,7 +103,7 @@ export class RoomClient {
             }
         }
 
-        localStream.getTracks().forEach(track => this.localPeer?.addTrack(track, localStream))
+        this.localStream.getTracks().forEach(track => this.localPeer?.addTrack(track, this.localStream!))
 
         const offer = await this.localPeer.createOffer({
                                                            offerToReceiveAudio: false,
@@ -122,6 +124,10 @@ export class RoomClient {
         this.send("leave")
 
         this.users = new Set()
+
+        this.localStream?.getTracks().forEach(track => track.stop())
+
+        this.delegate.onLocalMediaStreamRemoved()
         this.state = RoomClientState.connected
     }
 

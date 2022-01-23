@@ -1,6 +1,6 @@
 import React, {useEffect, useRef, useState} from "react"
 import {observer} from "mobx-react-lite"
-import {RoomClient} from "../RoomClient"
+import {RoomClient, RoomClientState} from "../RoomClient"
 import {RouteComponentProps} from "react-router"
 import axios from "axios"
 import {apiURL} from "../Utils"
@@ -65,46 +65,53 @@ const RoomPage = observer((props: RoomPageProps): JSX.Element => {
     return <div>
         <h1>Room: {roomName}</h1>
         <input type={"text"} disabled={!!roomClient} placeholder={"Username"} ref={usernameInputRef}/>
-        <button onClick={() => {
-            let uname = usernameInputRef.current!.value
+        <button disabled={!!roomClient}
+                onClick={() => {
+                    let uname = usernameInputRef.current!.value
 
-            if (!uname || uname.length < 3) {
-                return
-            }
+                    if (!uname || uname.length < 3) {
+                        alert("Not enough symbols in username")
+                        return
+                    }
 
-            if (!!roomClient) {
-                roomClient.leave()
-            }
+                    if (!!roomClient) {
+                        roomClient.leave()
+                    }
 
-            setRoomClient(new RoomClient(uname,
-                                         roomName,
-                                         {
-                                             onLocalMediaStreamReady: (stream: MediaStream) => {
-                                                 localMediaRef.current!.srcObject = stream
-                                             },
-                                             onRemoteMediaStreamReady: (username, stream) => {
-                                                 console.info(`Got for ${username}`)
-                                                 let ref = remoteMediaRefs.current![username]
-                                                 if (ref) {
-                                                     ref.srcObject = stream
-                                                 }
-                                             },
-                                             onRemoteMediaStreamRemoved: (username => {
-                                                 let ref = remoteMediaRefs.current![username]
-                                                 if (ref) {
-                                                     ref.srcObject = null
-                                                 }
-                                             }),
-                                         }))
-        }}>CONNECT
+                    setRoomClient(new RoomClient(uname,
+                                                 roomName,
+                                                 {
+                                                     onLocalMediaStreamReady: (stream: MediaStream) => {
+                                                         localMediaRef.current!.srcObject = stream
+                                                     },
+                                                     onLocalMediaStreamRemoved: () => {
+                                                         localMediaRef.current!.srcObject = null
+                                                     },
+                                                     onRemoteMediaStreamReady: (username, stream) => {
+                                                         console.info(`Got for ${username}`)
+                                                         let ref = remoteMediaRefs.current![username]
+                                                         if (ref) {
+                                                             ref.srcObject = stream
+                                                         }
+                                                     },
+                                                     onRemoteMediaStreamRemoved: (username => {
+                                                         let ref = remoteMediaRefs.current![username]
+                                                         if (ref) {
+                                                             ref.srcObject = null
+                                                         }
+                                                     }),
+                                                 }))
+                }}>CONNECT
         </button>
-        <button onClick={() => {
-            roomClient?.join()
-        }}>JOIN
+        <button disabled={roomClient?.state !== RoomClientState.connected}
+                onClick={() => {
+                    roomClient?.join()
+                }}>JOIN
         </button>
-        <button onClick={() => {
-            roomClient?.leave()
-        }}>LEAVE
+        <button disabled={roomClient?.state !== RoomClientState.joined}
+                onClick={() => {
+                    roomClient?.leave()
+                }}>LEAVE
         </button>
         {roomClient ? <>
             <p>Username: {roomClient.username}</p>

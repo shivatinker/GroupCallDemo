@@ -10,10 +10,12 @@ services:
     ports:
       - "8888:8888"
   backend:
+    environment:
+      - MEETALL_COMPOSE=1
     build: ./backend
     image: ghcr.io/shivatinker/gcd-backend:latest
     ports:
       - "8080:8080"
     depends_on:
       - kurento
-    command: [ "./wait-for-it.sh", "kurento:8888", "--strict", "--", "java", "--enable-preview", "-jar", "/usr/local/lib/app.jar"]
+    command: [ "./wait-for-it.sh", "kurento:8888", "--strict", "--", "java", "--enable-preview", "-jar", "/usr/local/lib/app.jar" ]
